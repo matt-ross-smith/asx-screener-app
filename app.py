@@ -7,10 +7,11 @@ from io import StringIO
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ASX_CSV_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
 
-# Get all ASX stock tickers and industry info from ASX's official CSV
+@st.cache_data(show_spinner=False)
 def get_all_asx_tickers_with_industries():
     try:
         response = requests.get(ASX_CSV_URL)
@@ -58,7 +59,6 @@ def get_news_sentiment(ticker):
     except:
         return 'Unavailable'
 
-# Get stock data from Yahoo Finance
 def get_stock_details_yahoo(ticker):
     stock_data = {'Ticker': ticker}
     try:
@@ -99,11 +99,27 @@ def calculate_rsi(series, period=14):
     rsi = 100 - (100 / (1 + rs))
     return round(rsi.iloc[-1], 2) if not rsi.empty else 'N/A'
 
-# Streamlit UI
+def fetch_all_data_concurrently(tickers, max_threads=10):
+    results = []
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        future_to_ticker = {executor.submit(get_stock_details_yahoo, ticker): ticker for ticker in tickers}
+        for i, future in enumerate(as_completed(future_to_ticker)):
+            data = future.result()
+            results.append(data)
+            st.progress((i + 1) / len(tickers))
+    return results
+
 def main():
     st.title("ASX Share Screener with Filters, Charts, Value Picks & Sentiment")
 
     df_tickers = get_all_asx_tickers_with_industries()
+
+    ticker_source = st.radio("Run analysis on:", ["ASX 200", "All ASX Shares"])
+    if ticker_source == "ASX 200":
+        # Simplified ASX200 subset (can be replaced with official list)
+        asx200_sample = df_tickers.head(200)
+        df_tickers = asx200_sample
+
     industries = sorted(df_tickers['Industry'].unique())
     selected_industry = st.selectbox("Select Industry to Filter", ["All"] + industries)
 
@@ -112,15 +128,7 @@ def main():
             df_tickers = df_tickers[df_tickers['Industry'] == selected_industry]
 
         tickers = df_tickers['Ticker'].tolist()
-        all_data = []
-        progress = st.progress(0)
-
-        for i, ticker in enumerate(tickers):
-            stock_data = get_stock_details_yahoo(ticker)
-            stock_data['Industry'] = df_tickers[df_tickers['Ticker'] == ticker]['Industry'].values[0] if not df_tickers[df_tickers['Ticker'] == ticker].empty else 'Unknown'
-            all_data.append(stock_data)
-            progress.progress((i + 1) / len(tickers))
-            time.sleep(0.2)
+        all_data = fetch_all_data_concurrently(tickers)
 
         df = pd.DataFrame(all_data)
 
@@ -128,7 +136,6 @@ def main():
         if 'Ticker' in df.columns:
             st.dataframe(df)
 
-            # Safely convert RSI to numeric for filtering
             df['RSI_numeric'] = pd.to_numeric(df['RSI'], errors='coerce')
             undervalued_df = df[(df['Undervalued'] == True) & (df['RSI_numeric'] < 40)]
 
