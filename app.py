@@ -35,19 +35,18 @@ def get_asx200_tickers():
     try:
         html = requests.get(url).text
         soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", {"class": "wikitable"})
-        df_list = pd.read_html(str(table))
-        if df_list:
-            df_asx200 = df_list[0]
-            for col in df_asx200.columns:
-                if 'Ticker' in col or 'Symbol' in col:
+        tables = soup.find_all("table", {"class": "wikitable"})
+        df_list = pd.read_html(str(tables))
+
+        for df_candidate in df_list:
+            for col in df_candidate.columns:
+                if 'Ticker' in str(col) or 'Symbol' in str(col) or 'Code' in str(col):
                     ticker_column = col
-                    break
-            else:
-                raise ValueError("No column containing Ticker/Symbol found.")
-            df_asx200['Ticker'] = df_asx200[ticker_column].astype(str).str.upper().str.strip()
-            df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
-            return df_asx200[['Ticker']]
+                    df_candidate['Ticker'] = df_candidate[ticker_column].astype(str).str.upper().str.strip()
+                    df_candidate['Ticker'] = df_candidate['Ticker'].str.replace(".AX", "", regex=False)
+                    return df_candidate[['Ticker']]
+
+        raise ValueError("No column containing Ticker/Symbol/Code found.")
     except Exception as e:
         st.warning(f"Failed to fetch ASX 200 list: {e}")
         return pd.DataFrame(columns=['Ticker'])
