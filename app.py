@@ -36,27 +36,27 @@ def get_asx200_tickers():
         html = requests.get(url).text
         soup = BeautifulSoup(html, "html.parser")
         table = soup.find("table", {"class": "wikitable"})
+
         df_list = pd.read_html(str(table))
         if df_list:
             df_asx200 = df_list[0]
 
-            # Try to find the ticker column by looking for likely values (e.g. 3-5 uppercase letters)
-            for col in df_asx200.columns:
-                sample_values = df_asx200[col].dropna().astype(str).head(10).str.strip().str.upper()
-                if sample_values.str.match(r'^[A-Z]{2,5}(\.AX)?$').all():
-                    ticker_column = col
-                    break
+            if 'ASX code' in df_asx200.columns:
+                df_asx200['Ticker'] = df_asx200['ASX code']
+            elif 'Ticker symbol' in df_asx200.columns:
+                df_asx200['Ticker'] = df_asx200['Ticker symbol']
+            elif 'Symbol' in df_asx200.columns:
+                df_asx200['Ticker'] = df_asx200['Symbol']
             else:
-                raise ValueError("No column containing Ticker/Symbol found.")
+                raise ValueError("ASX 200 table does not have a recognizable Ticker column.")
 
-            df_asx200['Ticker'] = df_asx200[ticker_column].astype(str).str.upper().str.strip()
+            df_asx200['Ticker'] = df_asx200['Ticker'].astype(str).str.upper().str.strip()
             df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
             return df_asx200[['Ticker']]
     except Exception as e:
         st.warning(f"Failed to fetch ASX 200 list: {e}")
         return pd.DataFrame(columns=['Ticker'])
 
-# Get news sentiment (simple keyword-based approach from Yahoo News)
 def get_news_sentiment(ticker):
     try:
         search_url = f"https://finance.yahoo.com/quote/{ticker}.AX/news"
@@ -101,10 +101,17 @@ def get_stock_details_yahoo(ticker):
         if not hist.empty:
             avg_price = hist['Close'].mean()
             stock_data['6mo Avg Price'] = round(avg_price, 2)
-            stock_data['Undervalued'] = stock_data['Last Price'] < avg_price
+            try:
+                last_price = float(stock_data['Last Price'])
+                stock_data['Undervalued'] = last_price < avg_price
+            except:
+                stock_data['Undervalued'] = False
             stock_data['RSI'] = calculate_rsi(hist['Close'])
             stock_data['200MA'] = round(hist['Close'].rolling(window=200).mean().iloc[-1], 2)
-            stock_data['Above 200MA'] = stock_data['Last Price'] > stock_data['200MA']
+            try:
+                stock_data['Above 200MA'] = float(stock_data['Last Price']) > stock_data['200MA']
+            except:
+                stock_data['Above 200MA'] = 'N/A'
         else:
             stock_data['6mo Avg Price'] = 'N/A'
             stock_data['Undervalued'] = False
@@ -128,13 +135,15 @@ def calculate_rsi(series, period=14):
 
 def fetch_all_data_concurrently(tickers, max_threads=10):
     results = []
-    progress_bar = st.progress(0)
+    progress_bar = st.empty()
+    progress = 0
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         future_to_ticker = {executor.submit(get_stock_details_yahoo, ticker): ticker for ticker in tickers}
         for i, future in enumerate(as_completed(future_to_ticker)):
             data = future.result()
             results.append(data)
-            progress_bar.progress((i + 1) / len(tickers))
+            progress = (i + 1) / len(tickers)
+            progress_bar.progress(progress)
     return results
 
 def main():
@@ -178,16 +187,22 @@ def main():
                     yf_ticker = f"{ticker}.AX"
                     hist = yf.Ticker(yf_ticker).history(period="6mo")
                     if not hist.empty:
+                        hist = hist[['Close']].dropna()
+                        if hist.empty:
+                            st.warning(f"No valid price data for {ticker}")
+                            continue
                         ma200 = hist['Close'].rolling(window=200).mean()
+                        avg_price = hist['Close'].mean()
                         plt.figure(figsize=(10, 4))
                         plt.plot(hist.index, hist['Close'], label='Close Price')
-                        plt.axhline(hist['Close'].mean(), color='red', linestyle='--', label='6mo Avg')
-                        plt.plot(hist.index, ma200, color='orange', linestyle='--', label='200MA')
+                        plt.axhline(avg_price, color='red', linestyle='--', label='6mo Avg')
+                        if not ma200.isna().all():
+                            plt.plot(hist.index, ma200, color='orange', linestyle='--', label='200MA')
                         plt.title(f"{ticker} Price Trend")
                         plt.legend()
                         st.pyplot(plt)
-                except:
-                    continue
+                except Exception as e:
+                    st.warning(f"Error plotting {ticker}: {e}")
         else:
             st.error("No Ticker column found in data.")
 
