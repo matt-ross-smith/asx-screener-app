@@ -125,9 +125,16 @@ def main():
         st.subheader("All Data")
         st.dataframe(df)
 
-        undervalued_df = df[(df['Undervalued'] == True) & (df['RSI'] != 'N/A') & (df['RSI'] < 40)]
-        st.subheader("Recommended Value Buys (Below 6mo Avg, RSI < 40)")
-        st.dataframe(undervalued_df)
+required_cols = {'Undervalued', 'RSI'}
+if required_cols.issubset(df.columns):
+    filtered_df = df[df['Undervalued'] == True]
+    filtered_df = filtered_df[filtered_df['RSI'] != 'N/A']
+    filtered_df = filtered_df[filtered_df['RSI'] < 40]
+    st.subheader("Recommended Value Buys (Below 6mo Avg, RSI < 40)")
+    st.dataframe(filtered_df)
+else:
+    st.warning("Some key data columns are missing. Try refreshing or checking data sources.")
+
 
         st.download_button("Download All Data", df.to_csv(index=False), "asx_all_data.csv")
 
