@@ -39,7 +39,13 @@ def get_asx200_tickers():
         df_list = pd.read_html(str(table))
         if df_list:
             df_asx200 = df_list[0]
-            df_asx200['Ticker'] = df_asx200['Ticker'].astype(str).str.upper().str.strip()
+            for col in df_asx200.columns:
+                if 'Ticker' in col or 'Symbol' in col:
+                    ticker_column = col
+                    break
+            else:
+                raise ValueError("No column containing Ticker/Symbol found.")
+            df_asx200['Ticker'] = df_asx200[ticker_column].astype(str).str.upper().str.strip()
             df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
             return df_asx200[['Ticker']]
     except Exception as e:
