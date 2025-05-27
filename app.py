@@ -11,16 +11,19 @@ import re
 ASX_CSV_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
 
 # Get all ASX stock tickers and industry info from ASX's official CSV
+
 def get_all_asx_tickers_with_industries():
     try:
         response = requests.get(ASX_CSV_URL)
         response.encoding = 'utf-8'
         csv_data = StringIO(response.text)
         df = pd.read_csv(csv_data, skiprows=1)
-        df = df[['ASX code', 'Industry Group']].dropna()
-        df.columns = ['Ticker', 'Industry']
+        if 'ASX code' not in df.columns:
+            raise ValueError("'ASX code' not found in ASX CSV")
+        df = df[['ASX code']].dropna()
+        df.columns = ['Ticker']
         df['Ticker'] = df['Ticker'].astype(str).str.strip()
-        df['Industry'] = df['Industry'].astype(str).str.strip()
+        df['Industry'] = 'Unknown'
         return df
     except Exception as e:
         st.error(f"Failed to download ticker list: {e}")
@@ -115,7 +118,7 @@ def main():
 
         for i, ticker in enumerate(tickers):
             stock_data = get_stock_details_yahoo(ticker)
-            stock_data['Industry'] = df_tickers[df_tickers['Ticker'] == ticker]['Industry'].values[0]
+            stock_data['Industry'] = df_tickers[df_tickers['Ticker'] == ticker]['Industry'].values[0] if not df_tickers[df_tickers['Ticker'] == ticker].empty else 'Unknown'
             all_data.append(stock_data)
             progress.progress((i + 1) / len(tickers))
             time.sleep(0.2)
@@ -123,38 +126,34 @@ def main():
         df = pd.DataFrame(all_data)
 
         st.subheader("All Data")
-        st.dataframe(df)
+        if 'Ticker' in df.columns:
+            st.dataframe(df)
 
-        required_cols = {'Undervalued', 'RSI'}
-        if required_cols.issubset(df.columns):
-            filtered_df = df[df['Undervalued'] == True]
-            filtered_df = filtered_df[filtered_df['RSI'] != 'N/A']
-            filtered_df = filtered_df[filtered_df['RSI'] < 40]
+            undervalued_df = df[(df['Undervalued'] == True) & (df['RSI'] != 'N/A') & (df['RSI'] < 40)]
             st.subheader("Recommended Value Buys (Below 6mo Avg, RSI < 40)")
-            st.dataframe(filtered_df)
+            st.dataframe(undervalued_df)
+
+            st.download_button("Download All Data", df.to_csv(index=False), "asx_all_data.csv")
+
+            st.subheader("Visualize Stock Prices vs 6mo Avg and 200MA")
+            selected_chart_tickers = st.multiselect("Choose tickers to chart", df['Ticker'].dropna().unique().tolist())
+            for ticker in selected_chart_tickers:
+                try:
+                    yf_ticker = f"{ticker}.AX"
+                    hist = yf.Ticker(yf_ticker).history(period="6mo")
+                    if not hist.empty:
+                        ma200 = hist['Close'].rolling(window=200).mean()
+                        plt.figure(figsize=(10, 4))
+                        plt.plot(hist.index, hist['Close'], label='Close Price')
+                        plt.axhline(hist['Close'].mean(), color='red', linestyle='--', label='6mo Avg')
+                        plt.plot(hist.index, ma200, color='orange', linestyle='--', label='200MA')
+                        plt.title(f"{ticker} Price Trend")
+                        plt.legend()
+                        st.pyplot(plt)
+                except:
+                    continue
         else:
-            st.warning("Some key data columns are missing. Try refreshing or checking data sources.")
-
-
-        st.download_button("Download All Data", df.to_csv(index=False), "asx_all_data.csv")
-
-        st.subheader("Visualize Stock Prices vs 6mo Avg and 200MA")
-        selected_chart_tickers = st.multiselect("Choose tickers to chart", df['Ticker'].tolist())
-        for ticker in selected_chart_tickers:
-            try:
-                yf_ticker = f"{ticker}.AX"
-                hist = yf.Ticker(yf_ticker).history(period="6mo")
-                if not hist.empty:
-                    ma200 = hist['Close'].rolling(window=200).mean()
-                    plt.figure(figsize=(10, 4))
-                    plt.plot(hist.index, hist['Close'], label='Close Price')
-                    plt.axhline(hist['Close'].mean(), color='red', linestyle='--', label='6mo Avg')
-                    plt.plot(hist.index, ma200, color='orange', linestyle='--', label='200MA')
-                    plt.title(f"{ticker} Price Trend")
-                    plt.legend()
-                    st.pyplot(plt)
-            except:
-                continue
+            st.error("No Ticker column found in data.")
 
 if __name__ == "__main__":
     main()
