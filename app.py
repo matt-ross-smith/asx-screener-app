@@ -11,7 +11,6 @@ import re
 ASX_CSV_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
 
 # Get all ASX stock tickers and industry info from ASX's official CSV
-
 def get_all_asx_tickers_with_industries():
     try:
         response = requests.get(ASX_CSV_URL)
@@ -129,9 +128,12 @@ def main():
         if 'Ticker' in df.columns:
             st.dataframe(df)
 
-            undervalued_df = df[(df['Undervalued'] == True) & (df['RSI'] != 'N/A') & (df['RSI'] < 40)]
+            # Safely convert RSI to numeric for filtering
+            df['RSI_numeric'] = pd.to_numeric(df['RSI'], errors='coerce')
+            undervalued_df = df[(df['Undervalued'] == True) & (df['RSI_numeric'] < 40)]
+
             st.subheader("Recommended Value Buys (Below 6mo Avg, RSI < 40)")
-            st.dataframe(undervalued_df)
+            st.dataframe(undervalued_df.drop(columns=['RSI_numeric']))
 
             st.download_button("Download All Data", df.to_csv(index=False), "asx_all_data.csv")
 
