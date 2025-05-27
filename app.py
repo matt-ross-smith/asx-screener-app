@@ -29,6 +29,23 @@ def get_all_asx_tickers_with_industries():
         st.error(f"Failed to download ticker list: {e}")
         return pd.DataFrame(columns=['Ticker', 'Industry'])
 
+@st.cache_data(show_spinner=False)
+def get_asx200_tickers():
+    url = "https://en.wikipedia.org/wiki/S%26P/ASX_200"
+    try:
+        html = requests.get(url).text
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", {"class": "wikitable"})
+        df_list = pd.read_html(str(table))
+        if df_list:
+            df_asx200 = df_list[0]
+            df_asx200['Ticker'] = df_asx200['Ticker'].astype(str).str.upper().str.strip()
+            df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
+            return df_asx200[['Ticker']]
+    except Exception as e:
+        st.warning(f"Failed to fetch ASX 200 list: {e}")
+        return pd.DataFrame(columns=['Ticker'])
+
 # Get news sentiment (simple keyword-based approach from Yahoo News)
 def get_news_sentiment(ticker):
     try:
@@ -116,9 +133,8 @@ def main():
 
     ticker_source = st.radio("Run analysis on:", ["ASX 200", "All ASX Shares"])
     if ticker_source == "ASX 200":
-        # Simplified ASX200 subset (can be replaced with official list)
-        asx200_sample = df_tickers.head(200)
-        df_tickers = asx200_sample
+        asx200_df = get_asx200_tickers()
+        df_tickers = df_tickers[df_tickers['Ticker'].isin(asx200_df['Ticker'])]
 
     industries = sorted(df_tickers['Industry'].unique())
     selected_industry = st.selectbox("Select Industry to Filter", ["All"] + industries)
