@@ -39,13 +39,16 @@ def get_asx200_tickers():
         df_list = pd.read_html(str(table))
         if df_list:
             df_asx200 = df_list[0]
-            ticker_column = None
+
+            # Try to find the ticker column by looking for likely values (e.g. 3-5 uppercase letters)
             for col in df_asx200.columns:
-                if re.search(r'Ticker|Symbol|Code', col, re.I):
+                sample_values = df_asx200[col].dropna().astype(str).head(10).str.strip().str.upper()
+                if sample_values.str.match(r'^[A-Z]{2,5}(\.AX)?$').all():
                     ticker_column = col
                     break
-            if ticker_column is None:
+            else:
                 raise ValueError("No column containing Ticker/Symbol found.")
+
             df_asx200['Ticker'] = df_asx200[ticker_column].astype(str).str.upper().str.strip()
             df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
             return df_asx200[['Ticker']]
@@ -53,6 +56,7 @@ def get_asx200_tickers():
         st.warning(f"Failed to fetch ASX 200 list: {e}")
         return pd.DataFrame(columns=['Ticker'])
 
+# Get news sentiment (simple keyword-based approach from Yahoo News)
 def get_news_sentiment(ticker):
     try:
         search_url = f"https://finance.yahoo.com/quote/{ticker}.AX/news"
@@ -60,20 +64,24 @@ def get_news_sentiment(ticker):
         response = requests.get(search_url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         headlines = soup.find_all('h3')
+
         news_titles = [h.get_text() for h in headlines]
         positive_words = ['gain', 'surge', 'profit', 'beat', 'strong', 'record']
         negative_words = ['fall', 'drop', 'loss', 'miss', 'weak', 'cut']
+
         sentiment_score = 0
         for title in news_titles:
             title_lower = title.lower()
             sentiment_score += sum(1 for w in positive_words if w in title_lower)
             sentiment_score -= sum(1 for w in negative_words if w in title_lower)
+
         if sentiment_score > 1:
             sentiment = 'Positive'
         elif sentiment_score < -1:
             sentiment = 'Negative'
         else:
             sentiment = 'Neutral'
+
         return sentiment
     except:
         return 'Unavailable'
@@ -84,9 +92,11 @@ def get_stock_details_yahoo(ticker):
         yf_ticker = f"{ticker}.AX"
         stock = yf.Ticker(yf_ticker)
         info = stock.info
+
         stock_data['Last Price'] = info.get('regularMarketPrice', 'N/A')
         stock_data['Price Change'] = info.get('regularMarketChange', 'N/A')
         stock_data['Percent Change'] = info.get('regularMarketChangePercent', 'N/A')
+
         hist = stock.history(period="6mo")
         if not hist.empty:
             avg_price = hist['Close'].mean()
@@ -101,9 +111,11 @@ def get_stock_details_yahoo(ticker):
             stock_data['RSI'] = 'N/A'
             stock_data['200MA'] = 'N/A'
             stock_data['Above 200MA'] = 'N/A'
+
         stock_data['Sentiment'] = get_news_sentiment(ticker)
     except Exception as e:
         stock_data['Error'] = str(e)
+
     return stock_data
 
 def calculate_rsi(series, period=14):
@@ -116,13 +128,13 @@ def calculate_rsi(series, period=14):
 
 def fetch_all_data_concurrently(tickers, max_threads=10):
     results = []
-    progress_bar = st.progress(0)  # Create progress bar once
+    progress_bar = st.progress(0)
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         future_to_ticker = {executor.submit(get_stock_details_yahoo, ticker): ticker for ticker in tickers}
         for i, future in enumerate(as_completed(future_to_ticker)):
             data = future.result()
             results.append(data)
-            progress_bar.progress((i + 1) / len(tickers))  # Update progress bar progress
+            progress_bar.progress((i + 1) / len(tickers))
     return results
 
 def main():
