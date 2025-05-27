@@ -12,6 +12,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 ASX_CSV_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
 
 @st.cache_data(show_spinner=False)
+def get_all_asx_tickers_with_industries():
+    try:
+        response = requests.get(ASX_CSV_URL)
+        data = pd.read_csv(StringIO(response.text), skiprows=1)
+        data.columns = ['Company', 'Ticker', 'Industry']
+        data['Ticker'] = data['Ticker'].str.strip().str.upper()
+        data['Industry'] = data['Industry'].fillna('Unknown')
+        return data[['Ticker', 'Industry']]
+    except Exception as e:
+        st.error(f"Failed to fetch ASX tickers: {e}")
+        return pd.DataFrame(columns=['Ticker', 'Industry'])
+
+@st.cache_data(show_spinner=False)
 def get_asx200_tickers():
     url = "https://en.wikipedia.org/wiki/S%26P/ASX_200"
     try:
@@ -28,35 +41,6 @@ def get_asx200_tickers():
                 if col in df_asx200.columns:
                     df_asx200['Ticker'] = df_asx200[col]
                     break
-            else:
-                raise ValueError("ASX 200 table does not have a recognizable Ticker column.")
-
-            df_asx200['Ticker'] = df_asx200['Ticker'].astype(str).str.upper().str.strip()
-            df_asx200['Ticker'] = df_asx200['Ticker'].str.replace(".AX", "", regex=False)
-            return df_asx200[['Ticker']]
-    except Exception as e:
-        st.warning(f"Failed to fetch ASX 200 list: {e}")
-        return pd.DataFrame(columns=['Ticker'])
-
-
-@st.cache_data(show_spinner=False)
-def get_asx200_tickers():
-    url = "https://en.wikipedia.org/wiki/S%26P/ASX_200"
-    try:
-        html = requests.get(url).text
-        soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", {"class": "wikitable"})
-
-        df_list = pd.read_html(str(table))
-        if df_list:
-            df_asx200 = df_list[0]
-
-            if 'ASX code' in df_asx200.columns:
-                df_asx200['Ticker'] = df_asx200['ASX code']
-            elif 'Ticker symbol' in df_asx200.columns:
-                df_asx200['Ticker'] = df_asx200['Ticker symbol']
-            elif 'Symbol' in df_asx200.columns:
-                df_asx200['Ticker'] = df_asx200['Symbol']
             else:
                 raise ValueError("ASX 200 table does not have a recognizable Ticker column.")
 
